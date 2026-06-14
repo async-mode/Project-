@@ -1,0 +1,194 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum TeacherStatus {
+  ACTIVE
+  BLOCKED
+  SUSPENDED
+}
+
+enum CopyState {
+  UPLOADED
+  SCAN_QUARANTINED       // Identity mismatch detected
+  SCAN_BLURRED           // Laplacian variance below threshold
+  SCAN_INCOMPLETE        // Page count mismatch
+  ASSIGNED
+  GRADING_IN_PROGRESS
+  AI_AUDITING
+  FLAGGED_FOR_REVIEW
+  VERIFIED
+  PUBLISHED
+}
+
+enum AuditVerdict {
+  PASS
+  FLAG_MAJOR_DELTA       // Teacher score vs AI score delta too large
+  FLAG_ZERO_MARK         // Teacher gave 0 on semantically correct answer
+  FLAG_COVERAGE          // Teacher skipped a question
+  FLAG_TOTALING          // Arithmetic total mismatch
+  FLAG_SCAN_BLUR
+  FLAG_SCAN_MISMATCH
+  FLAG_SCAN_INCOMPLETE
+}
+
+model User {
+  id                  String        @id @default(cuid())
+  email               String        @unique
+  name                String
+  passwordHash        String
+  role                Role
+  schoolCode          String?
+  
+  // Teacher-specific fields
+  teacherStatus       TeacherStatus? @default(ACTIVE)
+  majorErrorCount     Int           @default(0)
+  coverageErrorCount  Int           @default(0)
+  zeroMarkFlagCount   Int           @default(0)
+  avgDelta            Float         @default(0)
+  copiesGraded        Int           @default(0)
+  driftScore          Float         @default(0)
+  
+  assignedCopies      ExamCopy[]    @relation("TeacherCopies")
+  auditLogs           AuditLog[]
+  securityEvents      SecurityLog[]
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model ExamConfig {
+  id                  String        @id @default(cuid())
+  examName            String
+  subject             String
+  year                Int
+  expectedPageCount   Int
+  totalMaxMarks       Int
+  rubrics             Rubric[]
+  copies              ExamCopy[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model ExamCopy {
+  id                  String        @id @default(cuid())
+  examConfigId        String
+  examConfig          ExamConfig    @relation(fields: [examConfigId], references: [id])
+  
+  // Identity
+  studentRollNumber   String
+  studentId           String?
+  student             User?         @relation(fields: [studentId], references: [id])
+  schoolCode          String
+  
+  // Scan metadata
+  s3Key               String?
+  s3BucketName        String?
+  sha256Hash          String?
+  scanHubId           String?
+  pageCount           Int?
+  
+  // State machine
+  state               CopyState     @default(UPLOADED)
+  
+  // Assignment
+  assignedTeacherId   String?
+  assignedTeacher     User?         @relation("TeacherCopies", fields: [assignedTeacherId], references: [id])
+  assignedAt          DateTime?
+  
+  // Scores
+  teacherTotalScore   Float?
+  aiExpectedScore     Float?
+  scoreDelta          Float?
+  finalPublishedScore Float?
+  
+  // Relations
+  questionMarks       QuestionMark[]
+  auditLogs           AuditLog[]
+  scanAuditRecord     ScanAuditRecord?
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model Rubric {
+  id                  String        @id @default(cuid())
+  examConfigId        String
+  examConfig          ExamConfig    @relation(fields: [examConfigId], references: [id])
+  questionNumber      Int
+  maxMarks            Float
+  answerKeyText       String
+  answerKeyEmbedding  Bytes?
+  keywords            String[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model QuestionMark {
+  id                  String        @id @default(cuid())
+  copyId              String
+  copy                ExamCopy      @relation(fields: [copyId], references: [id])
+  questionNumber      Int
+  maxMarks            Float
+  teacherAwardedMarks Float?
+  aiExpectedMarks     Float?
+  studentAnswerText   String?
+  similarityScore     Float?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model ScanAuditRecord {
+  id                  String        @id @default(cuid())
+  copyId              String        @unique
+  copy                ExamCopy      @relation(fields: [copyId], references: [id])
+  sha256Hash          String
+  pageCount           Int
+  blurScores          Json
+  identityCheckPassed Boolean
+  blurCheckPassed     Boolean
+  pageCountCheckPassed Boolean
+  scanHubId           String
+  createdAt           DateTime      @default(now())
+}
+
+model AuditLog {
+  id                  String        @id @default(cuid())
+  copyId              String?
+  copy                ExamCopy?     @relation(fields: [copyId], references: [id])
+  actorId             String?
+  actor               User?         @relation(fields: [actorId], references: [id])
+  verdict             AuditVerdict?
+  event               String
+  payload             Json
+  previousHashId      String?
+  rowHash             String
+  createdAt           DateTime      @default(now())
+}
+
+model SecurityLog {
+  id                  String        @id @default(cuid())
+  userId              String?
+  user                User?         @relation(fields: [userId], references: [id])
+  event               String
+  ipAddress           String?
+  userAgent           String?
+  resourceId          String?
+  previousHashId      String?
+  rowHash             String
+  createdAt           DateTime      @default(now())
+}
