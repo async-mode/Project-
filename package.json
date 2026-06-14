@@ -1,0 +1,18 @@
+{
+  "name": "osm-platform",
+  "version": "1.0.0",
+  "description": "AI-Governed On-Screen Marking Platform",
+  "private": true,
+  "scripts": {
+    "db:generate": "cd packages/database && prisma generate",
+    "db:migrate:dev": "cd packages/database && prisma migrate dev",
+    "db:migrate:deploy": "cd packages/database && prisma migrate deploy",
+    "db:seed": "cd packages/database && prisma db seed",
+    "db:studio": "cd packages/database && prisma studio"
+  },
+  "workspaces": [
+    "apps/web",
+    "apps/ai-service",
+    "packages/database"
+  ]
+}
